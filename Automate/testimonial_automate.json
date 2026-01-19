@@ -1,0 +1,33 @@
+{
+    "title": "Notify Seller of New Testimonial",
+    "active": true,
+    "throttle": false,
+    "step_groups": [
+      "notification_steps"
+    ],
+    "trigger": {
+      "title": "Testimonial Entry Created",
+      "type": "contentstack.webhook",
+      "config": {
+        "content_type_uid": "testimonial"
+      },
+      "next": [
+        "step_email_notify"
+      ]
+    },
+    "steps": [
+      {
+        "uid": "step_email_notify",
+        "title": "Send Feedback Email to Seller",
+        "type": "action",
+        "connector_id": "email_notification",
+        "action_id": "send_email",
+        "config": {
+          "to": "{{entry.seller_email}}",
+          "subject": "New testimonial received",
+          "body": "Name: {{entry.title}}\nRating: {{entry.rating}}\nFeedback: {{entry.feedback}}"
+        },
+        "next": []
+      }
+    ]
+  }
