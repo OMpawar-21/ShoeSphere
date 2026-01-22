@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@contentstack/delivery-sdk": "^4.10.5",
+    "@contentstack/personalize-edge-sdk": "^1.0.21",
     "axios": "^1.13.2",
     "next": "16.1.1",
     "react": "19.2.3",
