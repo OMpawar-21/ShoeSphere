@@ -92,7 +92,7 @@ export default function ShoesGrid({ initialShoes, currentPage, totalPages }: Sho
                     {shoe.title}
                   </h3>
                   <p className="text-base sm:text-lg font-bold text-black">
-                    {formatPrice(shoe.price, currency)}
+                    {formatPrice(String(shoe.price), currency)}
                   </p>
                 </div>
               </Link>

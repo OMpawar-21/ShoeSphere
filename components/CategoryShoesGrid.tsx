@@ -97,7 +97,7 @@ export default function CategoryShoesGrid({
                     {shoe.title}
                   </h3>
                   <p className="text-base sm:text-lg font-bold text-black">
-                  {formatPrice(String(shoe.price), currency)}
+                    {formatPrice(String(shoe.price), currency)}
                   </p>
                 </div>
               </Link>
