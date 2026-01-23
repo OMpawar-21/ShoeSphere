@@ -8,9 +8,17 @@ import {
 
 type QueryBuilder = (query: any) => any;
 
+/**
+ * Generic function to fetch entries with variant support
+ * Now properly handles variant aliases from Personalize
+ */
 export const getEntries = async <T>(
   contentType: string,
-  options?: { includeReference?: string[]; queryBuilder?: QueryBuilder; variantAlias?: string }
+  options?: { 
+    includeReference?: string[]; 
+    queryBuilder?: QueryBuilder; 
+    variantAliases?: string[]; // Array of aliases from SDK
+  }
 ): Promise<T[]> => {
   let entryRequest = stack.contentType(contentType).entry();
 
@@ -18,11 +26,19 @@ export const getEntries = async <T>(
     entryRequest = entryRequest.includeReference(options.includeReference);
   }
 
-  // Add variant using the SDK's variants() method
-  // Skip for base USD variant (cs91db6b7e0d7f71e1) as it's the default
-  if (options?.variantAlias && options.variantAlias !== 'cs91db6b7e0d7f71e1') {
-    entryRequest = entryRequest.variants(options.variantAlias);
-    console.log('Fetching entries with variant:', options.variantAlias);
+  // Apply variant aliases if provided
+  if (options?.variantAliases && options.variantAliases.length > 0) {
+    try {
+      // The variants() method can accept a single alias or array
+      const variantParam = options.variantAliases.length === 1 
+        ? options.variantAliases[0] 
+        : options.variantAliases;
+      console.log(`📡 Applying variant aliases:`, variantParam);
+      entryRequest = entryRequest.variants(variantParam);
+    } catch (error) {
+      console.error('Error applying variants:', error);
+      // Continue without variants if there's an error
+    }
   }
 
   let query = entryRequest.query();
@@ -38,7 +54,11 @@ export const getEntries = async <T>(
 
 export const getEntriesWithCount = async <T>(
   contentType: string,
-  options?: { includeReference?: string[]; queryBuilder?: QueryBuilder; variantAlias?: string }
+  options?: { 
+    includeReference?: string[]; 
+    queryBuilder?: QueryBuilder; 
+    variantAliases?: string[]; // Array of aliases from SDK
+  }
 ): Promise<{ entries: T[]; count: number }> => {
   let entryRequest = stack.contentType(contentType).entry();
 
@@ -46,11 +66,17 @@ export const getEntriesWithCount = async <T>(
     entryRequest = entryRequest.includeReference(options.includeReference);
   }
 
-  // Add variant using the SDK's variants() method
-  // Skip for base USD variant (cs91db6b7e0d7f71e1) as it's the default
-  if (options?.variantAlias && options.variantAlias !== 'cs91db6b7e0d7f71e1') {
-    entryRequest = entryRequest.variants(options.variantAlias);
-    console.log('Fetching entries with count, variant:', options.variantAlias);
+  // Apply variant aliases if provided
+  if (options?.variantAliases && options.variantAliases.length > 0) {
+    try {
+      const variantParam = options.variantAliases.length === 1 
+        ? options.variantAliases[0] 
+        : options.variantAliases;
+      console.log(`📡 Applying variant aliases:`, variantParam);
+      entryRequest = entryRequest.variants(variantParam);
+    } catch (error) {
+      console.error('Error applying variants:', error);
+    }
   }
 
   let query = entryRequest.query().includeCount();
@@ -69,7 +95,10 @@ export const getEntriesWithCount = async <T>(
 export const getEntry = async <T>(
   contentType: string,
   entryUid: string,
-  options?: { includeReference?: string[]; variantAlias?: string }
+  options?: { 
+    includeReference?: string[]; 
+    variantAliases?: string[]; // Array of aliases from SDK
+  }
 ): Promise<T | null> => {
   let entryRequest = stack.contentType(contentType).entry(entryUid);
 
@@ -77,18 +106,22 @@ export const getEntry = async <T>(
     entryRequest = entryRequest.includeReference(options.includeReference);
   }
 
-  // Add variant using the SDK's variants() method
-  // Skip for base USD variant (cs91db6b7e0d7f71e1) as it's the default
-  if (options?.variantAlias && options.variantAlias !== 'cs91db6b7e0d7f71e1') {
-    entryRequest = entryRequest.variants(options.variantAlias);
-    console.log('Fetching entry with variant:', options.variantAlias);
+  // Apply variant aliases if provided
+  if (options?.variantAliases && options.variantAliases.length > 0) {
+    try {
+      const variantParam = options.variantAliases.length === 1 
+        ? options.variantAliases[0] 
+        : options.variantAliases;
+      entryRequest = entryRequest.variants(variantParam);
+    } catch (error) {
+      // Continue without variants
+    }
   }
 
   try {
     const result = await entryRequest.fetch();
     return result as T;
   } catch (error) {
-    console.warn(`Failed to fetch ${contentType} entry ${entryUid}`, error);
     return null;
   }
 };
@@ -96,24 +129,24 @@ export const getEntry = async <T>(
 /**
  * Fetches all shoe entries including their related brand, seller, and categories
  */
-export const getAllShoes = async (variantAlias?: string): Promise<ContentstackShoe[]> => {
+export const getAllShoes = async (variantAliases?: string[]): Promise<ContentstackShoe[]> => {
   return getEntries<ContentstackShoe>('shoes', {
     includeReference: ['brand_ref', 'category_ref', 'testimonials', 'material_ref', 'seller_ref'],
-    variantAlias,
+    variantAliases,
   });
 };
 
 /**
  * Fetches a single shoe based on the dynamic URL slug using equalTo
  */
-export const getShoeByUrl = async (shoeUrl: string, variantAlias?: string): Promise<ContentstackShoe | null> => {
+export const getShoeByUrl = async (shoeUrl: string, variantAliases?: string[]): Promise<ContentstackShoe | null> => {
   // Construct the full URL as it exists in Contentstack (e.g., /shoes/superstar-classic)
   const fullUrl = `/shoes/${shoeUrl}`;
 
   const entries = await getEntries<ContentstackShoe>('shoes', {
     includeReference: ['brand_ref', 'category_ref', 'testimonials', 'material_ref', 'seller_ref'],
     queryBuilder: (query) => query.equalTo('url', fullUrl),
-    variantAlias,
+    variantAliases,
   });
 
   return entries[0] || null;
@@ -128,7 +161,6 @@ export const getGlobalConfig = async (): Promise<ContentstackSiteConfig> => {
     return entries[0] || {};
   } catch (error) {
     // If site_config content type doesn't exist, return empty config
-    console.warn('site_config content type not found, using default config');
     return {};
   }
 };
@@ -136,7 +168,7 @@ export const getGlobalConfig = async (): Promise<ContentstackSiteConfig> => {
 /**
  * Fetches homepage content with hero section and featured shoes
  */
-export const getHomepage = async (variantAlias?: string): Promise<ContentstackHomepage | null> => {
+export const getHomepage = async (variantAliases?: string[]): Promise<ContentstackHomepage | null> => {
   try {
     const entries = await getEntries<ContentstackHomepage>('homepage', {
       includeReference: [
@@ -147,12 +179,11 @@ export const getHomepage = async (variantAlias?: string): Promise<ContentstackHo
         'featured_shoes.material_ref',
         'featured_shoes.seller_ref',
       ],
-      variantAlias,
+      variantAliases,
     });
 
     return entries[0] || null;
   } catch (error) {
-    console.warn('homepage content type not found:', error);
     return null;
   }
 };

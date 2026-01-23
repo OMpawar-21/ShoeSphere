@@ -2,8 +2,8 @@
 
 import { ContentstackShoe, ContentstackTestimonial } from '@/types/contentstack';
 import { useCurrency } from '@/contexts/CurrencyContext';
-import { useEffect, useState } from 'react';
-import { formatPrice } from '@/lib/personalize';
+import { useEffect, useState, useMemo } from 'react';
+import { formatPrice, trackProductView } from '@/lib/personalize';
 import TestimonialForm from './TestimonialForm';
 import Link from 'next/link';
 
@@ -13,16 +13,22 @@ interface ShoeDetailProps {
 }
 
 export default function ShoeDetail({ initialShoe, shoeUrl }: ShoeDetailProps) {
-  const { currency, variantUid, isLoading: currencyLoading } = useCurrency();
+  // variantAliases now contains SHORT UIDs from SDK
+  const { currency, variantAliases, isLoading: currencyLoading } = useCurrency();
   const [shoe, setShoe] = useState<ContentstackShoe>(initialShoe);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Stabilize array for dependency comparison
+  const variantAliasesKey = useMemo(() => variantAliases.join(','), [variantAliases]);
 
   useEffect(() => {
     async function fetchShoeWithVariant() {
       setIsLoading(true);
       try {
-        const url = `/api/shoes/${shoeUrl}?variant=${encodeURIComponent(variantUid)}`;
-        console.log('Detail page fetching shoe with variant UID:', variantUid);
+        // Use variantAliases for fetching content
+        const url = `/api/shoes/${shoeUrl}${variantAliasesKey ? `?variants=${encodeURIComponent(variantAliasesKey)}` : ''}`;
+        
+        console.log(`📡 Fetching shoe detail with variantAliases:`, variantAliasesKey);
         
         const response = await fetch(url);
         if (response.ok) {
@@ -32,14 +38,42 @@ export default function ShoeDetail({ initialShoe, shoeUrl }: ShoeDetailProps) {
           }
         }
       } catch (error) {
-        console.error('Failed to fetch shoe:', error);
+        console.error('Error fetching shoe:', error);
       } finally {
         setIsLoading(false);
       }
     }
 
     fetchShoeWithVariant();
-  }, [currency, variantUid, shoeUrl]);
+  }, [currency, variantAliasesKey, shoeUrl]);
+
+  // Trigger impression using SHORT UIDs from SDK (variantAliases)
+  useEffect(() => {
+    const trackImpression = async () => {
+      if (shoe && variantAliases.length > 0 && !isLoading && !currencyLoading) {
+        console.log(`📊 Tracking product view with SHORT UIDs:`, variantAliases);
+        
+        // Use shortUids for impression tracking (0, 1, 2)
+        await trackProductView(
+          shoe.uid,
+          variantAliases,  // SHORT UIDs from SDK
+          {
+            currency,
+            title: shoe.title,
+            price: shoe.price,
+            brand: Array.isArray(shoe.brand_ref) ? shoe.brand_ref[0]?.title : shoe.brand_ref?.title,
+            category: Array.isArray(shoe.category_ref) ? shoe.category_ref[0]?.title : shoe.category_ref?.title,
+          }
+        );
+      }
+    };
+
+    const timer = setTimeout(() => {
+      trackImpression();
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [shoe.uid, variantAliasesKey, isLoading, currencyLoading, currency]);
 
   const brandTitle = Array.isArray(shoe.brand_ref) ? shoe.brand_ref[0]?.title : shoe.brand_ref?.title;
   const categoryTitle = Array.isArray(shoe.category_ref) ? shoe.category_ref[0]?.title : shoe.category_ref?.title;

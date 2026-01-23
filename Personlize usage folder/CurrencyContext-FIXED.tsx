@@ -4,13 +4,15 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { 
   Currency, 
   setPersonalizeCurrency, 
-  initPersonalize
+  initPersonalize,
+  trackEvent 
 } from '@/lib/personalize';
 
 interface CurrencyContextType {
   currency: Currency;
   setCurrency: (currency: Currency) => void;
-  variantAliases: string[]; // Now treated as SHORT UIDs from SDK
+  shortVariantId: string; // For impression tracking (0, 1, 2)
+  fullVariantUid: string; // For Contentstack API (cs91db6b7e0d7f71e1, etc.)
   isLoading: boolean;
 }
 
@@ -18,7 +20,8 @@ const CurrencyContext = createContext<CurrencyContextType | undefined>(undefined
 
 export function CurrencyProvider({ children }: { children: React.ReactNode }) {
   const [currency, setCurrencyState] = useState<Currency>('USD');
-  const [variantAliases, setVariantAliases] = useState<string[]>([]);
+  const [shortVariantId, setShortVariantId] = useState<string>('1'); // Default USD = 1
+  const [fullVariantUid, setFullVariantUid] = useState<string>('cs91db6b7e0d7f71e1'); // Default USD
   const [isLoading, setIsLoading] = useState(false);
 
   // Initialize Personalize SDK on mount
@@ -32,7 +35,6 @@ export function CurrencyProvider({ children }: { children: React.ReactNode }) {
         if (savedCurrency && ['USD', 'EUR', 'INR'].includes(savedCurrency)) {
           await setCurrency(savedCurrency);
         } else {
-          // Set default currency
           await setCurrency('USD');
         }
       } catch (error) {
@@ -55,13 +57,30 @@ export function CurrencyProvider({ children }: { children: React.ReactNode }) {
       // Save to localStorage
       localStorage.setItem('selectedCurrency', newCurrency);
       
-      // Set currency in Personalize and get SHORT UIDs
-      const shortUids = await setPersonalizeCurrency(newCurrency);
+      // Set currency in Personalize and get BOTH IDs
+      const result = await setPersonalizeCurrency(newCurrency);
       
-      console.log(`📊 Short UIDs for ${newCurrency}:`, shortUids);
-      
-      // Store SHORT UIDs as variantAliases
-      setVariantAliases(shortUids);
+      if (result) {
+        const { shortId, fullUid } = result;
+        
+        console.log(`📊 Variant IDs for ${newCurrency}:`);
+        console.log(`   - Short ID (for impressions): ${shortId}`);
+        console.log(`   - Full UID (for API): ${fullUid}`);
+        
+        // Update both IDs in state
+        setShortVariantId(shortId);
+        setFullVariantUid(fullUid);
+        
+        // Track the currency change event
+        await trackEvent('currency_changed', { 
+          currency: newCurrency,
+          shortVariantId: shortId,
+          fullVariantUid: fullUid,
+          timestamp: new Date().toISOString()
+        });
+      } else {
+        console.error('Failed to get variant IDs');
+      }
       
       // Small delay for better UX
       await new Promise(resolve => setTimeout(resolve, 300));
@@ -75,7 +94,8 @@ export function CurrencyProvider({ children }: { children: React.ReactNode }) {
   const value: CurrencyContextType = {
     currency,
     setCurrency,
-    variantAliases,
+    shortVariantId,
+    fullVariantUid,
     isLoading,
   };
 

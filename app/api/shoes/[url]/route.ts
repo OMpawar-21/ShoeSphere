@@ -8,11 +8,16 @@ export async function GET(
   try {
     const { url } = await params;
     const searchParams = request.nextUrl.searchParams;
-    const variantAlias = searchParams.get('variant') || undefined;
+    const variantsParam = searchParams.get('variants') || '';
+    
+    // Convert comma-separated string to array
+    const variantAliases = variantsParam 
+      ? variantsParam.split(',').filter(Boolean)
+      : [];
 
-    console.log('API: Fetching shoe', url, 'with variant alias:', variantAlias);
+    console.log(`📡 API: Fetching shoe ${url} with variants:`, variantAliases);
 
-    const shoe = await getShoeByUrl(url, variantAlias);
+    const shoe = await getShoeByUrl(url, variantAliases);
 
     if (!shoe) {
       return NextResponse.json(
@@ -23,10 +28,10 @@ export async function GET(
 
     return NextResponse.json({
       shoe,
-      variantAlias,
+      variantAliases,
     });
   } catch (error) {
-    console.error('Failed to fetch shoe:', error);
+    console.error('API Error fetching shoe:', error);
     return NextResponse.json(
       { error: 'Failed to fetch shoe' },
       { status: 500 }

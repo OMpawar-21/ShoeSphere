@@ -1,0 +1,692 @@
+================================================================================
+          CONTENTSTACK PERSONALIZE IMPLEMENTATION - DETAILED GUIDE
+                         ShoeSphere Project
+================================================================================
+
+TABLE OF CONTENTS:
+------------------
+1. Overview of Personalize Usage
+2. What is Personalize SDK?
+3. Architecture & Flow
+4. Key Files & Their Roles
+5. Implementation Details
+6. Variant System
+7. Currency Management Flow
+8. API Integration
+9. Component Integration
+10. Environment Setup
+11. How It Works Step-by-Step
+12. Troubleshooting
+
+================================================================================
+1. OVERVIEW OF PERSONALIZE USAGE
+================================================================================
+
+In the ShoeSphere project, Contentstack Personalize SDK is used to implement
+multi-currency pricing. The system allows users to switch between three
+currencies (USD, EUR, INR) and dynamically fetch product variants with
+different prices from Contentstack.
+
+PURPOSE:
+--------
+- Enable multi-currency support for international customers
+- Dynamically fetch content variants based on user's currency selection
+- Provide real-time price updates without full page reloads
+- Persist user's currency preference across sessions
+
+TECHNOLOGIES USED:
+-----------------
+- @contentstack/personalize-edge-sdk (v1.0.21)
+- @contentstack/delivery-sdk (v4.10.5)
+- React Context API for state management
+- Next.js API Routes for server-side variant fetching
+- localStorage for persistence
+
+================================================================================
+2. WHAT IS PERSONALIZE SDK?
+================================================================================
+
+Contentstack Personalize SDK is a client-side JavaScript SDK that:
+- Manages user attributes and audience matching
+- Provides variant aliases for content personalization
+- Tracks user behavior and preferences
+- Integrates with Contentstack's variant system
+
+In this project, we use it to:
+1. Set currency as a user attribute
+2. Get variant aliases that match the selected currency
+3. Use those aliases to fetch the correct content variants from Contentstack
+
+================================================================================
+3. ARCHITECTURE & FLOW
+================================================================================
+
+DATA FLOW DIAGRAM:
+------------------
+
+User selects EUR currency
+    ↓
+CurrencySelector component calls setCurrency('EUR')
+    ↓
+CurrencyContext updates state and calls setPersonalizeCurrency('EUR')
+    ↓
+personalize.ts initializes SDK (if not already done)
+    ↓
+SDK.set({ currency: 'EUR' }) - Sets user attribute
+    ↓
+SDK.getVariantAliases() - Gets variant aliases (e.g., 'csc4ee31b822d1b0d0')
+    ↓
+Variant UID stored in CurrencyContext state
+    ↓
+Components detect currency/variant change via useEffect
+    ↓
+Components fetch from API: /api/shoes?variant=csc4ee31b822d1b0d0
+    ↓
+API route calls getEntriesWithCount() with variantAlias
+    ↓
+Contentstack Delivery SDK fetches EUR variant entries
+    ↓
+Products with EUR prices returned to components
+    ↓
+UI updates with new prices (€ format)
+
+================================================================================
+4. KEY FILES & THEIR ROLES
+================================================================================
+
+4.1 lib/personalize.ts
+-----------------------
+PRIMARY PURPOSE: Personalize SDK initialization and currency/variant utilities
+
+KEY FUNCTIONS:
+- initPersonalize(): Initializes the Personalize SDK instance
+- setPersonalizeCurrency(currency): Sets currency attribute and returns variant UID
+- formatPrice(price, currency): Formats price with correct currency symbol
+- getVariantUidForCurrency(currency): Returns variant UID for a currency
+- getCurrencyFromVariantUid(variantUid): Reverse lookup
+
+CONSTANTS:
+- VARIANT_UIDS: Maps currencies to Contentstack variant UIDs
+  * USD: 'cs91db6b7e0d7f71e1' (base variant)
+  * EUR: 'csc4ee31b822d1b0d0'
+  * INR: 'csb474334af86d3526'
+
+- CURRENCY_SYMBOLS: Maps currencies to display symbols ($, €, ₹)
+
+HOW IT WORKS:
+1. Checks for NEXT_PUBLIC_CONTENTSTACK_PERSONALIZE_PROJECT_UID env variable
+2. If available, initializes Personalize SDK
+3. Sets currency attribute via SDK.set({ currency })
+4. Attempts to get variant aliases from SDK
+5. Falls back to direct variant UID mapping if SDK unavailable
+
+4.2 contexts/CurrencyContext.tsx
+---------------------------------
+PRIMARY PURPOSE: Global currency state management using React Context
+
+KEY FEATURES:
+- Manages current currency (USD, EUR, INR)
+- Stores variant UID for current currency
+- Persists selection in localStorage
+- Provides loading state during currency switches
+- Initializes Personalize SDK on mount
+
+STATE MANAGEMENT:
+- currency: Current selected currency
+- variantUid: Current variant UID for fetching content
+- isLoading: Loading state during currency switch
+
+LIFECYCLE:
+1. On mount: Loads currency from localStorage
+2. Initializes Personalize SDK with stored currency
+3. Updates variant UID when currency changes
+4. Saves currency preference to localStorage
+
+4.3 components/CurrencySelector.tsx
+-----------------------------------
+PRIMARY PURPOSE: UI component for currency selection dropdown
+
+FEATURES:
+- Dropdown menu with USD, EUR, INR options
+- Shows current currency with symbol
+- Loading state during currency switch
+- Click-outside-to-close functionality
+- Accessible button with ARIA labels
+
+USER INTERACTION:
+- User clicks currency button
+- Dropdown opens showing all currencies
+- User selects a currency
+- Calls setCurrency() from CurrencyContext
+- Dropdown closes, loading state shows
+- Prices update automatically
+
+4.4 components/ShoesGrid.tsx & HomeShoeGrid.tsx
+-----------------------------------------------
+PRIMARY PURPOSE: Display product grids with dynamic currency support
+
+HOW IT WORKS:
+1. Receives initialShoes prop (server-rendered with default currency)
+2. Uses useCurrency() hook to get current currency and variantUid
+3. useEffect watches for currency/variant changes
+4. When changed, fetches new data from /api/shoes?variant={variantUid}
+5. Updates local state with new products
+6. Displays products with formatPrice() for correct currency symbol
+
+KEY FEATURES:
+- Loading spinner during currency switch
+- Smooth transitions between currencies
+- Maintains pagination state
+- Client-side re-fetching without page reload
+
+4.5 components/ShoeDetail.tsx
+------------------------------
+PRIMARY PURPOSE: Product detail page with currency support
+
+SIMILAR TO ShoesGrid:
+- Uses useCurrency() hook
+- Fetches product data when currency changes
+- Updates price display dynamically
+- Shows loading state during fetch
+
+4.6 components/ShoePrice.tsx
+-----------------------------
+PRIMARY PURPOSE: Reusable price display component
+
+FEATURES:
+- Automatically formats price with correct currency symbol
+- Uses current currency from CurrencyContext
+- Simple, reusable component
+
+4.7 app/api/shoes/route.ts
+---------------------------
+PRIMARY PURPOSE: API endpoint for fetching shoes with variant support
+
+HOW IT WORKS:
+1. Receives variant query parameter
+2. Calls getEntriesWithCount() with variantAlias
+3. Returns paginated results with variant-specific prices
+4. Supports pagination (page parameter)
+
+4.8 app/api/shoes/[url]/route.ts
+---------------------------------
+PRIMARY PURPOSE: API endpoint for fetching single shoe with variant
+
+SIMILAR TO /api/shoes but:
+- Fetches single product by URL
+- Uses getShoeByUrl() function
+- Returns single shoe object
+
+4.9 lib/contentstack.ts
+------------------------
+PRIMARY PURPOSE: Contentstack Delivery SDK wrapper functions
+
+KEY FUNCTIONS:
+- getEntries(): Generic function to fetch entries with variant support
+- getEntriesWithCount(): Same but includes total count
+- getEntry(): Fetch single entry with variant support
+- getAllShoes(): Fetch all shoes with variant
+- getShoeByUrl(): Fetch shoe by URL with variant
+
+VARIANT INTEGRATION:
+- Accepts variantAlias parameter
+- Passes it to Contentstack SDK's variants() method
+- Skips variant for base USD variant (cs91db6b7e0d7f71e1)
+
+4.10 lib/ContentstackClient.js
+------------------------------
+PRIMARY PURPOSE: Contentstack SDK initialization
+
+SIMPLE CONFIGURATION:
+- Initializes Contentstack stack with API credentials
+- Exports default stack instance
+- Used by all contentstack.ts functions
+
+================================================================================
+5. IMPLEMENTATION DETAILS
+================================================================================
+
+5.1 Personalize SDK Initialization
+-----------------------------------
+
+LOCATION: lib/personalize.ts, initPersonalize()
+
+PROCESS:
+1. Checks if SDK instance already exists (singleton pattern)
+2. Checks for NEXT_PUBLIC_CONTENTSTACK_PERSONALIZE_PROJECT_UID env variable
+3. If missing, logs warning and returns null (falls back to direct UIDs)
+4. If available, calls Personalize.init(projectUid)
+5. Stores instance for reuse
+6. Handles initialization errors gracefully
+
+CODE FLOW:
+```javascript
+if (sdkInstance) return sdkInstance;  // Reuse existing
+if (!projectUid) return null;          // Fallback mode
+sdkInstance = await Personalize.init(projectUid);
+return sdkInstance;
+```
+
+5.2 Currency Setting Process
+-----------------------------
+
+LOCATION: lib/personalize.ts, setPersonalizeCurrency()
+
+PROCESS:
+1. Gets variant UID from VARIANT_UIDS mapping
+2. Attempts to initialize SDK
+3. If SDK available:
+   a. Sets currency attribute: await sdk.set({ currency })
+   b. Gets variant aliases: sdk.getVariantAliases()
+   c. Returns aliases if available
+4. If SDK unavailable or fails:
+   a. Falls back to direct variant UID
+   b. Logs warning
+   c. Returns variant UID anyway
+
+FALLBACK MECHANISM:
+- If Personalize SDK is not configured or fails
+- System uses direct variant UID mapping
+- Still works, but without SDK's audience matching features
+
+5.3 Variant Fetching in Contentstack SDK
+-----------------------------------------
+
+LOCATION: lib/contentstack.ts, getEntries()
+
+PROCESS:
+1. Creates entry request: stack.contentType('shoes').entry()
+2. Adds references if needed: includeReference(['brand_ref', ...])
+3. If variantAlias provided and not base USD variant:
+   a. Calls entryRequest.variants(variantAlias)
+   b. This tells Contentstack to fetch variant entries
+4. Executes query and returns results
+
+IMPORTANT:
+- Base USD variant (cs91db6b7e0d7f71e1) is skipped
+- Contentstack returns default entries for base variant
+- Other variants must be explicitly requested
+
+================================================================================
+6. VARIANT SYSTEM
+================================================================================
+
+6.1 Variant UIDs
+----------------
+
+These are Contentstack entry variant UIDs (the _variant._uid field):
+
+USD (Base):  cs91db6b7e0d7f71e1
+EUR:         csc4ee31b822d1b0d0
+INR:         csb474334af86d3526
+
+HOW THEY'RE USED:
+- Passed to Contentstack Delivery SDK's variants() method
+- Contentstack returns entries from that specific variant
+- Each variant contains same products but with different prices
+
+6.2 Variant Structure in Contentstack
+--------------------------------------
+
+In Contentstack, variants are created as:
+- Base entry (USD prices)
+- Variant entries (EUR, INR prices)
+- Same content structure, different price values
+- Linked through variant system
+
+6.3 Variant Aliases vs Variant UIDs
+------------------------------------
+
+VARIANT UIDS (What we use):
+- Full Contentstack entry variant UIDs
+- Format: 'cs' + alphanumeric string
+- Directly used with Delivery SDK
+
+VARIANT ALIASES (SDK provides):
+- Short identifiers from Personalize SDK
+- May be different format
+- SDK maps these to actual variant UIDs
+- Currently we use direct UIDs for reliability
+
+================================================================================
+7. CURRENCY MANAGEMENT FLOW
+================================================================================
+
+7.1 Initial Load
+-----------------
+
+1. App starts, CurrencyContext mounts
+2. Checks localStorage for 'selectedCurrency'
+3. If found and valid, sets currency state
+4. Calls setPersonalizeCurrency(currency)
+5. Gets variant UID for that currency
+6. Stores variant UID in context state
+7. Components render with initial currency
+
+7.2 Currency Change
+-------------------
+
+1. User clicks CurrencySelector dropdown
+2. User selects new currency (e.g., EUR)
+3. CurrencySelector calls setCurrency('EUR')
+4. CurrencyContext:
+   a. Sets isLoading = true
+   b. Updates currency state to 'EUR'
+   c. Saves to localStorage
+   d. Calls setPersonalizeCurrency('EUR')
+   e. Gets new variant UID
+   f. Updates variantUid state
+   g. Sets isLoading = false after delay
+5. Components detect currency/variant change via useEffect
+6. Components fetch new data from API with variant parameter
+7. API returns EUR variant products
+8. Components update UI with new prices
+9. Loading state clears
+
+7.3 Persistence
+---------------
+
+- Currency stored in localStorage as 'selectedCurrency'
+- Persists across page reloads
+- Persists across browser sessions
+- User preference maintained
+
+================================================================================
+8. API INTEGRATION
+================================================================================
+
+8.1 /api/shoes Route
+--------------------
+
+ENDPOINT: GET /api/shoes?page=1&variant={variantUid}
+
+QUERY PARAMETERS:
+- page: Page number for pagination (default: 1)
+- variant: Variant UID for currency-specific content
+
+PROCESS:
+1. Extracts variant from query params
+2. Calls getEntriesWithCount() with variantAlias
+3. Applies pagination (skip, limit)
+4. Returns JSON with:
+   - shoes: Array of product entries
+   - count: Total number of products
+   - totalPages: Calculated pages
+   - currentPage: Current page number
+   - variantAlias: Variant used
+
+RESPONSE EXAMPLE:
+{
+  "shoes": [...],
+  "count": 20,
+  "totalPages": 5,
+  "currentPage": 1,
+  "variantAlias": "csc4ee31b822d1b0d0"
+}
+
+8.2 /api/shoes/[url] Route
+---------------------------
+
+ENDPOINT: GET /api/shoes/{shoeUrl}?variant={variantUid}
+
+PROCESS:
+1. Extracts URL from route params
+2. Extracts variant from query params
+3. Calls getShoeByUrl(url, variantAlias)
+4. Returns single shoe object
+
+RESPONSE EXAMPLE:
+{
+  "shoe": {...},
+  "variantAlias": "csc4ee31b822d1b0d0"
+}
+
+================================================================================
+9. COMPONENT INTEGRATION
+================================================================================
+
+9.1 Client Components Using Currency
+-------------------------------------
+
+ALL CLIENT COMPONENTS:
+- CurrencySelector.tsx
+- ShoesGrid.tsx
+- HomeShoeGrid.tsx
+- ShoeDetail.tsx
+- ShoePrice.tsx
+
+PATTERN USED:
+```typescript
+const { currency, variantUid, isLoading } = useCurrency();
+
+useEffect(() => {
+  // Fetch data when currency/variant changes
+  fetchData(variantUid);
+}, [currency, variantUid]);
+```
+
+9.2 Server Components
+---------------------
+
+SERVER COMPONENTS (Initial Render):
+- app/page.tsx (Homepage)
+- app/shoes/page.tsx (Shoes listing)
+- app/shoes/[url]/page.tsx (Shoe detail)
+
+PATTERN:
+- Server components fetch initial data with default currency
+- Pass data as props to client components
+- Client components handle currency switching
+
+HYBRID APPROACH:
+- Server-side rendering for SEO and initial load
+- Client-side updates for currency switching
+- Best of both worlds
+
+================================================================================
+10. ENVIRONMENT SETUP
+================================================================================
+
+10.1 Required Environment Variables
+------------------------------------
+
+BASIC CONTENTSTACK (Required):
+CONTENTSTACK_API_KEY=your_api_key
+CONTENTSTACK_DELIVERY_TOKEN=your_delivery_token
+CONTENTSTACK_ENVIRONMENT=production
+
+PERSONALIZE SDK (Optional but Recommended):
+NEXT_PUBLIC_CONTENTSTACK_PERSONALIZE_PROJECT_UID=your_project_uid
+
+MANAGEMENT API (For Testimonials):
+CONTENTSTACK_MANAGEMENT_TOKEN=your_management_token
+
+10.2 Getting Personalize Project UID
+-------------------------------------
+
+STEPS:
+1. Login to Contentstack account
+2. Go to your Stack
+3. Navigate to "Personalize" in sidebar
+4. Go to "Settings" → "Project Settings"
+5. Copy "Project UID"
+6. Add to .env.local as NEXT_PUBLIC_CONTENTSTACK_PERSONALIZE_PROJECT_UID
+
+IF PERSONALIZE NOT VISIBLE:
+- Check if your plan includes Personalize
+- Contact Contentstack support to enable
+- Or use fallback mode (direct variant UIDs)
+
+10.3 Fallback Mode
+------------------
+
+IF PERSONALIZE PROJECT UID NOT SET:
+- System uses direct variant UID mapping
+- Still fully functional
+- No SDK features (audience matching, etc.)
+- Direct variant fetching still works
+
+================================================================================
+11. HOW IT WORKS STEP-BY-STEP
+================================================================================
+
+EXAMPLE: User switches from USD to EUR
+
+STEP 1: User Interaction
+-------------------------
+- User clicks currency selector in navbar
+- Dropdown opens showing USD, EUR, INR
+- User clicks "EUR"
+
+STEP 2: Currency Context Update
+--------------------------------
+- CurrencySelector calls setCurrency('EUR')
+- CurrencyContext:
+  * Sets isLoading = true
+  * Updates currency state to 'EUR'
+  * Saves 'EUR' to localStorage
+  * Calls setPersonalizeCurrency('EUR')
+
+STEP 3: Personalize SDK Processing
+-----------------------------------
+- setPersonalizeCurrency('EUR') executes:
+  * Gets variant UID: 'csc4ee31b822d1b0d0'
+  * If SDK available: Sets attribute, gets aliases
+  * Returns variant UID: 'csc4ee31b822d1b0d0'
+- CurrencyContext stores variant UID in state
+
+STEP 4: Component Detection
+---------------------------
+- ShoesGrid component's useEffect detects change:
+  * Dependency array: [currency, variantUid, currentPage]
+  * Currency changed from 'USD' to 'EUR'
+  * Variant UID changed
+  * Effect triggers
+
+STEP 5: API Request
+-------------------
+- Component builds URL:
+  `/api/shoes?page=1&variant=csc4ee31b822d1b0d0`
+- Fetches from API route
+
+STEP 6: Server-Side Processing
+-------------------------------
+- API route extracts variant from query params
+- Calls getEntriesWithCount('shoes', { variantAlias: 'csc4ee31b822d1b0d0' })
+- contentstack.ts creates entry request
+- Adds variant: entryRequest.variants('csc4ee31b822d1b0d0')
+- Executes query to Contentstack
+
+STEP 7: Contentstack Response
+------------------------------
+- Contentstack returns EUR variant entries
+- Products have EUR prices (e.g., 89.99 instead of 99.99)
+- Same products, different price values
+
+STEP 8: Component Update
+-------------------------
+- API returns JSON with EUR products
+- Component updates state: setShoes(data.shoes)
+- formatPrice() formats prices with € symbol
+- UI re-renders with EUR prices
+- Loading state clears
+
+STEP 9: Persistence
+--------------------
+- Currency 'EUR' saved in localStorage
+- On next page load, EUR will be pre-selected
+- User preference maintained
+
+================================================================================
+12. TROUBLESHOOTING
+================================================================================
+
+ISSUE: Prices not changing when currency selected
+-------------------------------------------------
+CHECK:
+1. Is NEXT_PUBLIC_CONTENTSTACK_PERSONALIZE_PROJECT_UID set?
+2. Are variants published in Contentstack?
+3. Check browser console for errors
+4. Check Network tab for API requests
+5. Verify variant UIDs are correct
+
+SOLUTION:
+- Ensure env variable is set and server restarted
+- Verify variants exist and are published
+- Check variant UIDs match Contentstack
+
+ISSUE: "Personalize Project UID not configured" warning
+-------------------------------------------------------
+MEANING:
+- System is using fallback mode (direct variant UIDs)
+- Still functional, but SDK features unavailable
+
+SOLUTION:
+- Add NEXT_PUBLIC_CONTENTSTACK_PERSONALIZE_PROJECT_UID to .env.local
+- Restart dev server
+- Warning should disappear
+
+ISSUE: Currency selector not showing
+------------------------------------
+CHECK:
+1. Is CurrencyProvider wrapping the app? (app/layout.tsx)
+2. Is CurrencySelector imported in Navbar?
+3. Check for React errors in console
+
+SOLUTION:
+- Verify CurrencyProvider in layout.tsx
+- Check Navbar component imports
+
+ISSUE: Prices showing wrong currency symbol
+-------------------------------------------
+CHECK:
+1. Is formatPrice() being used?
+2. Is currency state correct?
+3. Check ShoePrice component
+
+SOLUTION:
+- Ensure all price displays use formatPrice() or ShoePrice component
+- Verify currency state is updating correctly
+
+ISSUE: API returning 404 or errors
+-----------------------------------
+CHECK:
+1. Are API routes in correct location? (app/api/shoes/route.ts)
+2. Check server logs for errors
+3. Verify Contentstack credentials
+
+SOLUTION:
+- Verify file structure
+- Check Contentstack API keys
+- Review server console output
+
+================================================================================
+SUMMARY
+================================================================================
+
+PERSONALIZE SDK USAGE:
+- Used for multi-currency content personalization
+- Sets currency as user attribute
+- Provides variant aliases (though we use direct UIDs)
+- Enables dynamic content fetching
+
+KEY COMPONENTS:
+1. Personalize SDK initialization (lib/personalize.ts)
+2. Currency context for state management (contexts/CurrencyContext.tsx)
+3. UI selector component (components/CurrencySelector.tsx)
+4. Dynamic data fetching (components/ShoesGrid.tsx, etc.)
+5. API routes with variant support (app/api/shoes/route.ts)
+6. Contentstack integration (lib/contentstack.ts)
+
+WORKFLOW:
+User selects currency → Context updates → Variant UID retrieved →
+Components fetch → API calls Contentstack with variant →
+Contentstack returns variant entries → UI updates with new prices
+
+FALLBACK:
+If Personalize SDK not configured, system uses direct variant UID mapping
+and still functions correctly.
+
+================================================================================
+Generated: January 23, 2026
+================================================================================

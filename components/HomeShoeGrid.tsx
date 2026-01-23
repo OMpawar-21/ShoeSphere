@@ -3,8 +3,8 @@
 import { ContentstackShoe } from '@/types/contentstack';
 import Link from 'next/link';
 import { useCurrency } from '@/contexts/CurrencyContext';
-import { useEffect, useState } from 'react';
-import { formatPrice } from '@/lib/personalize';
+import { useEffect, useState, useMemo } from 'react';
+import { formatPrice, trackProductListView } from '@/lib/personalize';
 
 interface HomeShoeGridProps {
   initialShoes: ContentstackShoe[];
@@ -12,16 +12,22 @@ interface HomeShoeGridProps {
 }
 
 export default function HomeShoeGrid({ initialShoes, title }: HomeShoeGridProps) {
-  const { currency, variantUid, isLoading: currencyLoading } = useCurrency();
+  // variantAliases now contains SHORT UIDs from SDK
+  const { currency, variantAliases, isLoading: currencyLoading } = useCurrency();
   const [shoes, setShoes] = useState<ContentstackShoe[]>(initialShoes);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Stabilize array for dependency comparison
+  const variantAliasesKey = useMemo(() => variantAliases.join(','), [variantAliases]);
 
   useEffect(() => {
     async function fetchShoesWithVariant() {
       setIsLoading(true);
       try {
-        const url = `/api/shoes?page=1&variant=${encodeURIComponent(variantUid)}`;
-        console.log('Homepage fetching shoes with variant UID:', variantUid);
+        // Use variantAliases for fetching content
+        const url = `/api/shoes?page=1${variantAliasesKey ? `&variants=${encodeURIComponent(variantAliasesKey)}` : ''}`;
+        
+        console.log(`📡 Fetching homepage shoes with variantAliases:`, variantAliasesKey);
         
         const response = await fetch(url);
         if (response.ok) {
@@ -29,14 +35,40 @@ export default function HomeShoeGrid({ initialShoes, title }: HomeShoeGridProps)
           setShoes(data.shoes);
         }
       } catch (error) {
-        console.error('Failed to fetch shoes:', error);
+        console.error('Error fetching shoes:', error);
       } finally {
         setIsLoading(false);
       }
     }
 
     fetchShoesWithVariant();
-  }, [currency, variantUid]);
+  }, [currency, variantAliasesKey]);
+
+  // Trigger impressions using SHORT UIDs from SDK (variantAliases)
+  useEffect(() => {
+    const trackImpressions = async () => {
+      if (shoes.length > 0 && variantAliases.length > 0 && !isLoading && !currencyLoading) {
+        console.log(`📊 Tracking homepage impressions with SHORT UIDs:`, variantAliases);
+        
+        // Use shortUids for impression tracking (0, 1, 2)
+        await trackProductListView(
+          variantAliases,  // SHORT UIDs from SDK
+          shoes.length,
+          'homepage',
+          {
+            currency,
+            section: 'featured_products',
+          }
+        );
+      }
+    };
+
+    const timer = setTimeout(() => {
+      trackImpressions();
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [shoes.length, variantAliasesKey, isLoading, currencyLoading, currency]);
 
   if (isLoading || currencyLoading) {
     return (
