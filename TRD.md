@@ -2,9 +2,8 @@
 # ShoeSphere - E-Commerce Platform
 
 **Version:** 1.0  
-**Date:** January 24, 2026  
-**Author:** OM PAWAR  
-**Status:** Implemented
+**Date:** January 12, 2026  
+**Author:** OM PAWAR
 
 ---
 
