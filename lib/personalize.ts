@@ -10,6 +10,15 @@ export const CURRENCY_SYMBOLS: Record<Currency, string> = {
   INR: '₹',
 };
 
+// Country to Currency mapping (for reference, not hardcoded usage)
+export const COUNTRY_TO_CURRENCY: Record<string, Currency> = {
+  'United States of America': 'USD',
+  'US': 'USD',
+  'USA': 'USD',
+  'India': 'INR',
+  'IN': 'INR',
+};
+
 // Personalize SDK instance (singleton)
 let sdkInstance: Awaited<ReturnType<typeof Personalize.init>> | null = null;
 let isInitializing = false;
@@ -118,6 +127,203 @@ export async function setPersonalizeCurrency(currency: Currency): Promise<string
 }
 
 /**
+ * 🌍 Detect user's country from IP address using multiple services
+ * No hardcoding - uses free geolocation APIs
+ */
+export async function detectCountryFromIP(): Promise<string | null> {
+  console.log('\n🌍 ===== DETECTING COUNTRY FROM IP =====');
+  
+  // Try multiple geolocation services for redundancy
+  const geoServices = [
+    {
+      name: 'ipapi.co',
+      url: 'https://ipapi.co/json/',
+      extractCountry: (data: any) => data.country_name || data.country,
+    },
+    {
+      name: 'ip-api.com',
+      url: 'http://ip-api.com/json/',
+      extractCountry: (data: any) => data.country,
+    },
+    {
+      name: 'ipwhois.app',
+      url: 'https://ipwho.is/',
+      extractCountry: (data: any) => data.country,
+    },
+  ];
+
+  // Try each service
+  for (const service of geoServices) {
+    try {
+      console.log(`📡 Trying geolocation service: ${service.name}`);
+      
+      const response = await fetch(service.url, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        console.warn(`⚠️ ${service.name} returned status: ${response.status}`);
+        continue;
+      }
+
+      const data = await response.json();
+      console.log(`📊 Response from ${service.name}:`, data);
+      
+      const country = service.extractCountry(data);
+
+      if (country) {
+        console.log(`✅ Country detected via ${service.name}: ${country}`);
+        console.log(`🌍 ===== COUNTRY DETECTION COMPLETE =====\n`);
+        return country;
+      }
+    } catch (error: any) {
+      const errorMsg = error?.message || String(error);
+      console.warn(`⚠️ ${service.name} failed:`, errorMsg);
+      continue;
+    }
+  }
+
+  console.error('❌ All geolocation services failed');
+  console.log(`🌍 ===== COUNTRY DETECTION FAILED =====\n`);
+  return null;
+}
+
+/**
+ * Get currency suggestion based on detected country
+ * This is just a helper, not used for setting attributes
+ */
+export function getCurrencySuggestionFromCountry(country: string): Currency {
+  const normalizedCountry = country.toLowerCase();
+  
+  if (normalizedCountry.includes('united states') || normalizedCountry === 'us' || normalizedCountry === 'usa') {
+    return 'USD';
+  }
+  
+  if (normalizedCountry.includes('india') || normalizedCountry === 'in') {
+    return 'INR';
+  }
+  
+  // Default to USD for other countries
+  return 'USD';
+}
+
+/**
+ * 🔥 Set user attributes based on detected country
+ * The SDK will match audiences and return SHORT UIDs
+ * 
+ * @param country - Detected country name (e.g., "United States of America", "India")
+ * @param manualOverride - Optional manual currency override
+ */
+export async function setPersonalizeByCountry(
+  country: string,
+  manualOverride?: Currency
+): Promise<{
+  shortUids: string[];
+  detectedCountry: string;
+  suggestedCurrency: Currency;
+  finalCurrency: Currency;
+}> {
+  try {
+    const sdk = await initPersonalize();
+    
+    if (!sdk) {
+      console.error('❌ Personalize SDK not available');
+      return {
+        shortUids: [],
+        detectedCountry: country,
+        suggestedCurrency: 'USD',
+        finalCurrency: 'USD',
+      };
+    }
+
+    console.log('\n🌍 ===== SETTING PERSONALIZE BY COUNTRY =====');
+    console.log('📍 Detected Country:', country);
+
+    // Get currency suggestion from country
+    const suggestedCurrency = getCurrencySuggestionFromCountry(country);
+    console.log('💰 Suggested Currency:', suggestedCurrency);
+
+    // Use manual override if provided, otherwise use suggested
+    const finalCurrency = manualOverride || suggestedCurrency;
+    console.log('💰 Final Currency:', finalCurrency, manualOverride ? '(manual override)' : '(auto-detected)');
+
+    // 🔥 Set country attribute - Personalize will match audiences!
+    console.log('📝 Setting Personalize attribute: country =', country);
+    await sdk.set({ country: country });
+    console.log('✅ Attribute set successfully');
+
+    // 🔥 Get SHORT UIDs from matched audiences
+    const shortUids = sdk.getVariantAliases();
+    console.log('🎯 Raw variant aliases from SDK:', shortUids);
+    console.log('🎯 Type:', typeof shortUids, 'Is Array:', Array.isArray(shortUids));
+
+    const shortUidsArray = Array.isArray(shortUids) 
+      ? shortUids.map(id => String(id)) 
+      : [];
+
+    console.log('🎯 Processed SHORT UIDs:', shortUidsArray);
+
+    if (shortUidsArray.length === 0) {
+      console.warn('⚠️ No variants matched!');
+      console.warn('💡 Troubleshooting:');
+      console.warn(`   - Check if country "${country}" matches your audience conditions in Contentstack`);
+      console.warn(`   - Verify experience "Country wise Personalize" is Active (not Draft)`);
+      console.warn(`   - Check if variations with Short UIDs 0 and 1 are enabled`);
+      console.warn(`   - Verify country name EXACTLY matches: "${country}"`);
+    } else {
+      console.log('✅ Audience matched successfully');
+      console.log(`📊 Will use these SHORT UIDs for content: [${shortUidsArray.join(', ')}]`);
+    }
+
+    console.log('🌍 ===== PERSONALIZE SET COMPLETE =====\n');
+
+    return {
+      shortUids: shortUidsArray,
+      detectedCountry: country,
+      suggestedCurrency,
+      finalCurrency,
+    };
+  } catch (error) {
+    console.error('❌ Error setting personalize by country:', error);
+    return {
+      shortUids: [],
+      detectedCountry: country,
+      suggestedCurrency: 'USD',
+      finalCurrency: manualOverride || 'USD',
+    };
+  }
+}
+
+/**
+ * 🚀 Auto-detect country and set personalize
+ * This is the main function to call on app load
+ */
+export async function autoDetectAndSetPersonalize(
+  manualOverride?: Currency
+): Promise<{
+  shortUids: string[];
+  detectedCountry: string | null;
+  suggestedCurrency: Currency;
+  finalCurrency: Currency;
+}> {
+  console.log('🚀 Starting auto-detection...');
+
+  // Detect country from IP
+  const country = await detectCountryFromIP();
+
+  if (!country) {
+    console.warn('⚠️ Could not detect country, using default (United States of America)');
+    return setPersonalizeByCountry('United States of America', manualOverride);
+  }
+
+  // Set personalize based on detected country
+  return setPersonalizeByCountry(country, manualOverride);
+}
+
+/**
  * Get current SHORT UIDs without changing attributes
  */
 export async function getCurrentVariantAliases(): Promise<string[]> {
@@ -188,13 +394,30 @@ export async function triggerVariantImpressions(
         
         // THIS is the critical call - using SHORT UID from getVariantAliases()
         if (typeof shortUid === 'string' && shortUid !== '') {
-          await sdk.triggerImpression(shortUid);
-          console.log(`   ✅ Impression tracked successfully for SHORT UID: ${shortUid}`);
+          try {
+            await sdk.triggerImpression(shortUid);
+            console.log(`   ✅ Impression tracked successfully for SHORT UID: ${shortUid}`);
+          } catch (networkError: any) {
+            // Handle network errors gracefully
+            const errorMessage = networkError?.message || String(networkError);
+            console.warn(`   ⚠️ Network error tracking impression for SHORT UID "${shortUid}":`, errorMessage);
+            console.warn(`   💡 This is usually a network/CORS issue. Impression may still be tracked.`);
+            
+            // Don't throw - continue with other impressions
+            if (errorMessage.includes('Failed to fetch')) {
+              console.warn(`   🔍 Possible causes:`);
+              console.warn(`      - Network connectivity issue`);
+              console.warn(`      - CORS policy blocking request`);
+              console.warn(`      - Contentstack Personalize endpoint unavailable`);
+              console.warn(`   💡 The app will continue to work. Check Contentstack Analytics later.`);
+            }
+          }
         } else {
           console.warn(`   ⚠️ Skipping impression for undefined or empty SHORT UID: ${shortUid}`);
         }
       } catch (impressionError) {
         console.error(`   ❌ Failed to track impression for SHORT UID: ${shortUid}`, impressionError);
+        // Don't throw - continue with other impressions
       }
     }
 
@@ -349,6 +572,64 @@ export function getCurrencyFromLocation(countryCode?: string): Currency {
 }
 
 /**
+ * 🔍 DEBUG: Test country detection and personalization
+ */
+export async function testCountryPersonalization(): Promise<void> {
+  console.log('\n🧪 ===== TESTING COUNTRY PERSONALIZATION =====\n');
+  
+  try {
+    // Test 1: Country detection
+    console.log('Test 1: Detecting country from IP...');
+    const country = await detectCountryFromIP();
+    console.log('✅ Detected country:', country);
+    
+    if (!country) {
+      console.error('❌ Country detection failed!');
+      return;
+    }
+    
+    // Test 2: Set personalize by country
+    console.log('\nTest 2: Setting Personalize with detected country...');
+    const result = await setPersonalizeByCountry(country);
+    console.log('✅ Personalize result:', result);
+    
+    // Test 3: Check what SDK returned
+    console.log('\nTest 3: Analyzing SHORT UIDs...');
+    console.log('SHORT UIDs count:', result.shortUids.length);
+    console.log('SHORT UIDs:', result.shortUids);
+    
+    if (result.shortUids.length === 0) {
+      console.error('❌ No SHORT UIDs matched!');
+      console.error('💡 Check your Contentstack Personalize setup:');
+      console.error(`   - Experience "Country wise Personalize" is Active`);
+      console.error(`   - Audience has condition: country equals ${country}`);
+      console.error(`   - Variants with Short UIDs 0 and 1 are enabled`);
+    } else {
+      console.log('✅ SHORT UIDs matched successfully!');
+    }
+    
+    // Test 4: Expected SHORT UIDs
+    console.log('\nTest 4: Expected results...');
+    if (country.includes('United States') || country === 'US' || country === 'USA') {
+      console.log('💡 Expected SHORT UID: ["0"] (USD Entries)');
+      console.log('💡 Actual SHORT UIDs:', result.shortUids);
+      console.log(result.shortUids.includes('0') ? '✅ MATCH!' : '❌ MISMATCH!');
+    } else if (country.includes('India') || country === 'IN') {
+      console.log('💡 Expected SHORT UID: ["1"] (India Entries)');
+      console.log('💡 Actual SHORT UIDs:', result.shortUids);
+      console.log(result.shortUids.includes('1') ? '✅ MATCH!' : '❌ MISMATCH!');
+    } else {
+      console.log('💡 Country not configured for personalization:', country);
+      console.log('💡 Should default to United States');
+    }
+    
+    console.log('\n🧪 ===== TEST COMPLETE =====\n');
+  } catch (error) {
+    console.error('❌ Test failed:', error);
+  }
+}
+
+/**
  * 🔍 DEBUG: Inspect SDK structure (for development only)
  * Call this to see what the SDK object contains
  */
@@ -383,6 +664,11 @@ export async function debugSDKStructure(): Promise<void> {
     const aliases = sdk.getVariantAliases();
     console.log('getVariantAliases() returned:', aliases);
     console.log('Type:', typeof aliases, 'IsArray:', Array.isArray(aliases));
+    
+    if (Array.isArray(aliases) && aliases.length > 0) {
+      console.log('First alias:', aliases[0]);
+      console.log('First alias type:', typeof aliases[0]);
+    }
   } catch (e) {
     console.error('Error calling getVariantAliases:', e);
   }

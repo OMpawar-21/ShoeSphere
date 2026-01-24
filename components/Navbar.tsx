@@ -3,7 +3,6 @@
 import { ContentstackHeader } from '@/types/contentstack';
 import Link from 'next/link';
 import { useState } from 'react';
-import CurrencySelector from './CurrencySelector';
 
 interface NavbarProps {
   data?: ContentstackHeader;
@@ -93,9 +92,6 @@ export default function Navbar({ data }: NavbarProps) {
 
           {/* Right Side Icons */}
           <div className="flex items-center gap-4 lg:gap-6">
-            {/* Currency Selector */}
-            <CurrencySelector />
-            
             {/* Search Icon */}
             <button
               className="p-2 hover:bg-gray-100 rounded-full transition-colors duration-200"

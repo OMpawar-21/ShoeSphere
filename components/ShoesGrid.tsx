@@ -13,8 +13,14 @@ interface ShoesGridProps {
 }
 
 export default function ShoesGrid({ initialShoes, currentPage, totalPages }: ShoesGridProps) {
-  // variantAliases now contains SHORT UIDs from SDK
-  const { currency, variantAliases, isLoading: currencyLoading } = useCurrency();
+  // variantAliases now contains SHORT UIDs from SDK based on IP country detection
+  const { 
+    currency, 
+    variantAliases, 
+    detectedCountry,
+    isLoading: currencyLoading,
+    isDetecting
+  } = useCurrency();
   const [shoes, setShoes] = useState<ContentstackShoe[]>(initialShoes);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -49,19 +55,29 @@ export default function ShoesGrid({ initialShoes, currentPage, totalPages }: Sho
   // Trigger impressions using SHORT UIDs from SDK (variantAliases)
   useEffect(() => {
     const trackImpressions = async () => {
-      if (shoes.length > 0 && variantAliases.length > 0 && !isLoading && !currencyLoading) {
-        console.log(`📊 Tracking impressions with SHORT UIDs:`, variantAliases);
+      if (shoes.length > 0 && variantAliases.length > 0 && !isLoading && !currencyLoading && !isDetecting) {
+        console.log(`\n📊 ===== TRACKING IMPRESSIONS =====`);
+        console.log(`📄 Page type: all`);
+        console.log(`👟 Products shown: ${shoes.length}`);
+        console.log(`🌍 Detected country: ${detectedCountry || 'Unknown'}`);
+        console.log(`💰 Currency: ${currency}`);
+        console.log(`🎯 SHORT UIDs to track:`, variantAliases);
+        console.log(`🤖 Auto-detected from IP: Yes`);
         
-        // Use shortUids for impression tracking (0, 1, 2)
+        // Use shortUids for impression tracking (0, 1)
         await trackProductListView(
           variantAliases,  // SHORT UIDs from SDK
           shoes.length,
           'all',
           {
+            country: detectedCountry || 'Unknown',
             currency,
             page: currentPage,
           }
         );
+        
+        console.log(`✅ Impressions tracked successfully`);
+        console.log(`📊 ===== TRACKING COMPLETE =====\n`);
       }
     };
 
@@ -70,15 +86,16 @@ export default function ShoesGrid({ initialShoes, currentPage, totalPages }: Sho
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [shoes.length, variantAliasesKey, isLoading, currencyLoading, currentPage, currency]);
+  }, [shoes.length, variantAliasesKey, isLoading, currencyLoading, isDetecting, currentPage, currency, detectedCountry]);
 
   const canGoPrev = currentPage > 1;
   const canGoNext = currentPage < totalPages;
 
   return (
     <>
+
       <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
-        {isLoading || currencyLoading ? (
+        {isLoading || currencyLoading || isDetecting ? (
           <div className="col-span-full text-center py-12">
             <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-black border-t-transparent"></div>
             <p className="mt-4 text-sm font-semibold uppercase tracking-widest text-gray-500">
