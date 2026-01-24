@@ -13,13 +13,133 @@ interface ShoeDetailProps {
 }
 
 export default function ShoeDetail({ initialShoe, shoeUrl }: ShoeDetailProps) {
-  // variantAliases now contains SHORT UIDs from SDK
-  const { currency, variantAliases, isLoading: currencyLoading } = useCurrency();
+  // variantAliases contains full UIDs from SDK (for country/currency)
+  const { currency, variantAliases, detectedCountry, isLoading: currencyLoading } = useCurrency();
   const [shoe, setShoe] = useState<ContentstackShoe>(initialShoe);
   const [isLoading, setIsLoading] = useState(false);
+  const [colorVariants, setColorVariants] = useState<string[]>([]);
+
+  // Get color from URL parameter (e.g., ?color=red)
+  const getColorFromUrl = (): string => {
+    if (typeof window === 'undefined') return 'Base';
+    const params = new URLSearchParams(window.location.search);
+    const colorParam = params.get('color');
+    
+    if (!colorParam || colorParam.trim() === '') {
+      return 'Base';
+    }
+    
+    return colorParam.charAt(0).toUpperCase() + colorParam.slice(1).toLowerCase();
+  };
+
+  const [selectedColor, setSelectedColor] = useState('Base');
+
+  // Set selected color on mount
+  useEffect(() => {
+    setSelectedColor(getColorFromUrl());
+  }, []);
+
+  // Normalize country name to match Contentstack audience values
+  const normalizeCountry = (country: string): string => {
+    const countryMap: Record<string, string> = {
+      'United States of America': 'USA',
+      'United States': 'USA',
+      'US': 'USA',
+      'India': 'India',
+      // Add more mappings as needed
+    };
+    return countryMap[country] || country;
+  };
+
+  // Set color personalization in SDK (must set BOTH country AND color)
+  useEffect(() => {
+    async function setColorPersonalization() {
+      try {
+        console.log(`\n🎨 ===== SETTING COLOR PERSONALIZATION =====`);
+        console.log(`🎨 Selected color: "${selectedColor}"`);
+        console.log(`🌍 Detected country: "${detectedCountry}"`);
+        
+        const { initPersonalize } = await import('@/lib/personalize');
+        const sdk = await initPersonalize();
+        
+        if (!sdk) {
+          console.error('❌ SDK not available');
+          setColorVariants([]);
+          return;
+        }
+        
+        // Normalize country for Contentstack audiences
+        const normalizedCountry = normalizeCountry(detectedCountry || 'India');
+        
+        // Set BOTH attributes for color+country combined audiences
+        const attributesToSet = {
+          country: normalizedCountry,
+          color: selectedColor
+        };
+        
+        console.log(`📋 Setting attributes:`, attributesToSet);
+        
+        // Set attributes
+        await sdk.set(attributesToSet);
+        
+        // Log manifest to see matched audiences
+        const sdkAny = sdk as any;
+        if (typeof sdkAny.getManifest === 'function') {
+          const manifest = sdkAny.getManifest();
+          console.log(`📊 SDK Manifest:`, JSON.stringify(manifest, null, 2));
+        }
+        
+        // Get ALL variant aliases
+        const allUids = sdk.getVariantAliases();
+        const allUidsArray = Array.isArray(allUids) ? allUids.map(id => String(id)) : [];
+        
+        console.log(`🎯 All variants from SDK:`, allUidsArray);
+        
+        // Extract ONLY color variants (experience 3) by filtering based on experience ID
+        // Country experience is "2", Color experience is "3"
+        // Format: cs_personalize_<experienceId>_<variantId>
+        const colorOnly = allUidsArray.filter(uid => {
+          // Extract experience ID from the UID (e.g., cs_personalize_3_2 -> 3)
+          const match = uid.match(/cs_personalize_(\d+)_/);
+          if (match) {
+            const experienceId = match[1];
+            // Keep only color experience variants (experience 3)
+            return experienceId === '3';
+          }
+          return false;
+        });
+        
+        console.log(`🎨 Color variants (experience 3 only):`, colorOnly);
+        console.log(`🎨 ===== COLOR PERSONALIZATION COMPLETE =====\n`);
+        
+        setColorVariants(colorOnly);
+      } catch (error) {
+        console.error('❌ Error setting color:', error);
+        setColorVariants([]);
+      }
+    }
+
+    if (selectedColor && detectedCountry) {
+      setColorPersonalization();
+    }
+  }, [selectedColor, detectedCountry, variantAliases]);
+
+  // For shoe detail: Use color variants if available (they include country), otherwise use country variants
+  // Color variants like "Red Variant India" already include pricing for that country
+  const allVariants = useMemo(() => {
+    // If we have color variants, use them (they already include country-specific pricing)
+    // If no color variant (Base), use country variants for base pricing
+    if (colorVariants.length > 0) {
+      console.log(`🔄 Using COLOR variants (includes country): [${colorVariants.join(',')}]`);
+      return colorVariants;
+    }
+    // For Base color, use country variants
+    console.log(`🔄 Using COUNTRY variants (Base color): [${variantAliases.join(',')}]`);
+    return variantAliases;
+  }, [variantAliases, colorVariants]);
 
   // Stabilize array for dependency comparison
-  const variantAliasesKey = useMemo(() => variantAliases.join(','), [variantAliases]);
+  const variantAliasesKey = useMemo(() => allVariants.join(','), [allVariants]);
 
   useEffect(() => {
     async function fetchShoeWithVariant() {
@@ -47,20 +167,20 @@ export default function ShoeDetail({ initialShoe, shoeUrl }: ShoeDetailProps) {
     fetchShoeWithVariant();
   }, [currency, variantAliasesKey, shoeUrl]);
 
-  // Trigger impression using SHORT UIDs from SDK (variantAliases)
+  // Trigger impression using combined variants (country + color)
   useEffect(() => {
     const trackImpression = async () => {
-      if (shoe && variantAliases.length > 0 && !isLoading && !currencyLoading) {
-        console.log(`📊 Tracking product view with SHORT UIDs:`, variantAliases);
+      if (shoe && allVariants.length > 0 && !isLoading && !currencyLoading) {
+        console.log(`📊 Tracking product view with variants:`, allVariants);
         
-        // Use shortUids for impression tracking (0, 1, 2)
         await trackProductView(
           shoe.uid,
-          variantAliases,  // SHORT UIDs from SDK
+          allVariants,  // Combined country + color variants
           {
             currency,
             title: shoe.title,
             price: shoe.price,
+            color: selectedColor,
             brand: Array.isArray(shoe.brand_ref) ? shoe.brand_ref[0]?.title : shoe.brand_ref?.title,
             category: Array.isArray(shoe.category_ref) ? shoe.category_ref[0]?.title : shoe.category_ref?.title,
           }
@@ -73,12 +193,30 @@ export default function ShoeDetail({ initialShoe, shoeUrl }: ShoeDetailProps) {
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [shoe.uid, variantAliasesKey, isLoading, currencyLoading, currency]);
+  }, [shoe.uid, variantAliasesKey, isLoading, currencyLoading, currency, selectedColor, allVariants]);
 
   const brandTitle = Array.isArray(shoe.brand_ref) ? shoe.brand_ref[0]?.title : shoe.brand_ref?.title;
   const categoryTitle = Array.isArray(shoe.category_ref) ? shoe.category_ref[0]?.title : shoe.category_ref?.title;
   const seller = Array.isArray(shoe.seller_ref) ? shoe.seller_ref[0] : shoe.seller_ref;
   const sellerEmail = seller?.email;
+
+  // Available color options (you can customize this list)
+  const availableColors = ['Base', 'Red', 'Black'];
+
+  // Handle color change without page refresh
+  const handleColorChange = (color: string) => {
+    // Update URL without page refresh
+    const url = new URL(window.location.href);
+    if (color === 'Base') {
+      url.searchParams.delete('color');
+    } else {
+      url.searchParams.set('color', color.toLowerCase());
+    }
+    window.history.pushState({}, '', url.toString());
+    
+    // Update state - this will trigger the useEffect to fetch new variant
+    setSelectedColor(color);
+  };
 
   return (
     <div className="min-h-screen bg-white">
@@ -119,7 +257,7 @@ export default function ShoeDetail({ initialShoe, shoeUrl }: ShoeDetailProps) {
           <div className="space-y-6 sm:space-y-8">
             {/* Brand & Category */}
             <div className="space-y-4">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 flex-wrap">
                 {brandTitle && (
                   <span className="text-xs font-bold uppercase tracking-widest text-gray-500">
                     {brandTitle}
@@ -130,6 +268,20 @@ export default function ShoeDetail({ initialShoe, shoeUrl }: ShoeDetailProps) {
                     <span className="text-gray-300">/</span>
                     <span className="text-xs font-bold uppercase tracking-widest text-gray-500">
                       {categoryTitle}
+                    </span>
+                  </>
+                )}
+                {/* Color Variant Indicator */}
+                {selectedColor && selectedColor !== 'Base' && (
+                  <>
+                    <span className="text-gray-300">/</span>
+                    <span className="text-xs font-bold uppercase tracking-widest text-gray-500 flex items-center gap-1">
+                      <span className={`inline-block w-2 h-2 rounded-full ${
+                        selectedColor.toLowerCase() === 'red' ? 'bg-red-500' :
+                        selectedColor.toLowerCase() === 'black' ? 'bg-black' :
+                        'bg-gray-300'
+                      }`}></span>
+                      {selectedColor} Variant
                     </span>
                   </>
                 )}
@@ -149,6 +301,37 @@ export default function ShoeDetail({ initialShoe, shoeUrl }: ShoeDetailProps) {
                 ) : (
                   formatPrice(String(shoe.price), currency)
                 )}
+              </div>
+            </div>
+
+            {/* Color Selector */}
+            <div className="pt-6 border-t border-gray-200">
+              <h3 className="text-sm font-bold uppercase tracking-widest text-black mb-3">Select Color</h3>
+              <div className="flex flex-wrap gap-2">
+                {availableColors.map((color) => {
+                  const isSelected = selectedColor === color;
+                  return (
+                    <button
+                      key={color}
+                      onClick={() => handleColorChange(color)}
+                      className={`px-4 py-2 text-xs font-semibold uppercase tracking-wider transition-all duration-200 ${
+                        isSelected
+                          ? 'bg-black text-white border-2 border-black'
+                          : 'bg-white text-black border-2 border-gray-300 hover:border-black'
+                      }`}
+                      disabled={isLoading}
+                    >
+                      <span className="flex items-center gap-2">
+                        <span className={`inline-block w-3 h-3 rounded-full border ${
+                          color.toLowerCase() === 'red' ? 'bg-red-500 border-red-600' :
+                          color.toLowerCase() === 'black' ? 'bg-black border-gray-800' :
+                          'bg-gray-100 border-gray-300'
+                        }`}></span>
+                        {color}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 

@@ -129,4 +129,5 @@ export interface ContentstackShoe {
   heel_height?: string;
   size?: string[];
   testimonials?: ContentstackTestimonial[];
+  color?: string; // Color field for personalization (e.g., "Base", "Red", "Black")
 }

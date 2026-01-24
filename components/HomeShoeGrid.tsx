@@ -81,6 +81,24 @@ export default function HomeShoeGrid({ initialShoes, title }: HomeShoeGridProps)
     );
   }
 
+  // Convert shoe URL to use query params for color variants
+  const getShoeHref = (shoe: ContentstackShoe): string => {
+    let baseUrl = shoe.url;
+    
+    // Check URL for color suffix and convert to query param
+    const colorSuffixes = ['-red', '-black', '-blue', '-white', '-green'];
+    for (const suffix of colorSuffixes) {
+      if (baseUrl.endsWith(suffix)) {
+        const color = suffix.slice(1); // Remove the '-' prefix
+        baseUrl = baseUrl.slice(0, -suffix.length);
+        console.log(`🔗 Converting URL: ${shoe.url} -> ${baseUrl}?color=${color}`);
+        return `${baseUrl}?color=${color}`;
+      }
+    }
+    
+    return baseUrl;
+  };
+
   return (
     <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
       {shoes.map((shoe: ContentstackShoe, index: number) => {
@@ -90,7 +108,7 @@ export default function HomeShoeGrid({ initialShoes, title }: HomeShoeGridProps)
 
         return (
           <Link 
-            href={shoe.url} 
+            href={getShoeHref(shoe)} 
             key={shoe.uid} 
             className="group block animate-fade-in"
             style={{ animationDelay: `${index * 0.05}s` }}

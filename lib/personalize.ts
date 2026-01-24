@@ -127,6 +127,63 @@ export async function setPersonalizeCurrency(currency: Currency): Promise<string
 }
 
 /**
+ * Set color attribute and get SHORT UIDs for color-based personalization
+ * @param color - Color value from shoe ("Base", "Red", "Black", or empty string)
+ * @returns Array of SHORT UIDs matching the color variant
+ */
+export async function setPersonalizeColor(color: string): Promise<string[]> {
+  // Map empty/undefined to "Base"
+  const colorValue = !color || color.trim() === '' ? 'Base' : color;
+  
+  console.log(`🎨 Setting color attribute to: ${colorValue}`);
+  const shortUids = await setUserAttributesAndGetVariants({ Color: colorValue });
+  console.log(`🎨 Color ${colorValue} matched SHORT UIDs:`, shortUids);
+  return shortUids;
+}
+
+/**
+ * Set multiple personalization attributes at once
+ * Useful for setting both country and color together
+ */
+export async function setPersonalizeAttributes(attributes: {
+  country?: string;
+  currency?: Currency;
+  color?: string;
+  [key: string]: any;
+}): Promise<string[]> {
+  console.log('🔧 Setting multiple personalization attributes:', attributes);
+  
+  // Prepare attributes object
+  const finalAttributes: Record<string, any> = {};
+  
+  if (attributes.country) {
+    finalAttributes.country = attributes.country;
+  }
+  
+  if (attributes.currency) {
+    finalAttributes.currency = attributes.currency;
+  }
+  
+  if (attributes.color !== undefined) {
+    // Map empty string to "Base" for color
+    finalAttributes.Color = !attributes.color || attributes.color.trim() === '' 
+      ? 'Base' 
+      : attributes.color;
+  }
+  
+  // Add any additional attributes
+  Object.keys(attributes).forEach(key => {
+    if (!['country', 'currency', 'color'].includes(key)) {
+      finalAttributes[key] = attributes[key];
+    }
+  });
+  
+  const shortUids = await setUserAttributesAndGetVariants(finalAttributes);
+  console.log('🔧 Multiple attributes matched SHORT UIDs:', shortUids);
+  return shortUids;
+}
+
+/**
  * 🌍 Detect user's country from IP address using multiple services
  * No hardcoding - uses free geolocation APIs
  */

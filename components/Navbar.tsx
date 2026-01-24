@@ -29,7 +29,7 @@ export default function Navbar({ data }: NavbarProps) {
               <img 
                 src={data.logo.url} 
                 alt={data.logo.title || 'Logo'} 
-                className="h-10 lg:h-14 w-auto transition-opacity duration-200 hover:opacity-80" 
+                className="h-20 lg:h-28 w-auto transition-opacity duration-200 hover:opacity-80" 
               />
             ) : (
               <span className="text-2xl lg:text-3xl font-black uppercase tracking-tighter text-black">
