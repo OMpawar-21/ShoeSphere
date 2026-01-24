@@ -3,7 +3,7 @@
 
 **Version:** 1.0  
 **Date:** January 24, 2026  
-**Author:** ShoeSphere Team  
+**Author:** OM PAWAR  
 **Status:** Implemented
 
 ---
